@@ -1,6 +1,16 @@
 local KingCrimson = {}
 KingCrimson.__index = KingCrimson
 
+--[[
+This is the start of the skill module of the ability: King Crimson
+
+The ability i scripted comes from an anime Called Jojo's Bizarre Adventure where "stands" take place usually back to the user such as a shadow. 
+
+I explained most of the functions and topics, I hope I have explained it well.
+
+Please note that the first ability you spawn in the attached game is THIS ability.
+]]--
+
 -- Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
@@ -8,6 +18,9 @@ local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
+--[[
+Here i assigm services that i will use multiple times later in the code
+]]--
 
 -- Dependencies
 local Modules = ReplicatedStorage:WaitForChild("Modules")
@@ -21,12 +34,19 @@ local SFXHandler = require(Modules:WaitForChild("SFXHandler"))
 local AbilityModels = ServerStorage:WaitForChild("AbilityModels")
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local InfoFolder = ReplicatedStorage:WaitForChild("AbilityModules")
+--[[
+Here i call some other system modules and assign remote variables
+]]--
 
 -- Constants
 local STAND_NAME = "KingCrimson"
 local AbilityInfo = require(InfoFolder:WaitForChild(STAND_NAME))
 local MOVES = AbilityInfo.GetMoves()
 local ASSETS = AbilityInfo.GetAssets()
+
+--[[
+This variables are constant for this ability 
+]]--
 
 -- Constructor
 function KingCrimson.new(player)
@@ -48,6 +68,10 @@ function KingCrimson.new(player)
 
 	return self
 end
+
+--[[
+Here is the most crucial part of my code. Metatables allow me to store unique variables separately for each player who uses this ability.
+]]--
 
 -- Helper Methods
 function KingCrimson:GetStand()
@@ -74,6 +98,11 @@ function KingCrimson:CreateBulletTracer(startPos, endPos)
 	Debris:AddItem(tracer, 0.25)
 end
 
+--[[
+This is the bullet tracker function that creates a beam between final and starter points for a certain duration.
+]]--
+
+
 function KingCrimson:PlayAnim(targetModel, animId, speed)
 	if not animId or not targetModel then return nil end
 
@@ -87,6 +116,11 @@ function KingCrimson:PlayAnim(targetModel, animId, speed)
 
 	return track
 end
+
+--[[
+This is the anim player function that loads targer animationId to the target character's animator and plays it with designated playback speed.
+]]--
+
 
 function KingCrimson:AttackPosition(forwardAmount, duration)
 	local stand = self:GetStand()
@@ -118,6 +152,20 @@ function KingCrimson:AttackPosition(forwardAmount, duration)
 
 	task.wait(0.2)
 end
+
+--[[
+Attack position makes the ability take place front of the user before attacking. 
+
+This functions tweens ability rig position to the front of the player by "forwardAmount" (studs) throughout the "duration" (number)
+
+The reason why I use motor6d instead of classic welds is because motor6d makes the rig animations works correctly instead of just freezing it. Along side this motor6d provides more flexible movement&tweening
+]]--
+
+
+--[[
+Helper methods are usually part of multiple abilities,that's why I created simple functions of these codes in order to avoid using them repeatedly 
+]]--
+
 
 -- Core Abilities
 function KingCrimson:Summon()
@@ -180,6 +228,13 @@ function KingCrimson:Summon()
 	end
 end
 
+--[[
+
+ In this Summon ability whenever player triggers the designated key it gets fired, checks for the ability model, clones and tweens it to the correct place.
+]]--
+
+
+
 function KingCrimson:BarrageStart()
 	local stand = self:GetStand()
 	if not stand or self.State.IsBarraging then return end
@@ -218,6 +273,18 @@ function KingCrimson:BarrageStop()
 	end
 end
 
+
+--[[
+Barrage is an iconic skill for this type of abilities, basically spawns multiple hitboxes along side a bezier curve module that creates extra arms in order to feel like character punches really fast.
+
+how this function works is since this ability is holdable it's divided into two scripts.
+
+starter script creates the hitbox, arms, animation and sound while stop function disables all relevant self. variables
+
+This action makes the client side of the module check if attack still ongoing or not.
+]]--
+
+
 function KingCrimson:Heavy()
 	local stand = self:GetStand()
 	if not stand then return end
@@ -233,6 +300,11 @@ function KingCrimson:Heavy()
 	end)
 end
 
+--[[
+This is the heavy punch ability plays an animation and sound right before punching through the enemy
+]]--
+
+
 function KingCrimson:Punch()
 	local stand = self:GetStand()
 	if not stand then return end
@@ -243,6 +315,13 @@ function KingCrimson:Punch()
 
 	HitboxHandler.Run(self.Player, stand, data)
 end
+
+--[[
+This is the similar version of heavy punch ability with a lower damage on its "data"
+
+how data works is there is basically an information table located in client version of this module that includes various variables which will be checked by the hitbox handler server module
+]]--
+
 
 function KingCrimson:Chop()
 	local stand = self:GetStand()
@@ -267,6 +346,18 @@ function KingCrimson:Chop()
 		HitboxHandler.Run(self.Player, stand, data)
 	end)
 end
+
+--[[
+A similar version of previous two skills but connects with the DamagePerSecond system in it's data in order to create bleeding effect on enemy.
+]]--
+
+
+-- Time Erase And Counter
+
+--[[
+Both of the skills below explained end of the code
+]]--
+
 
 function KingCrimson:ReverseErase()
 	if not self.State.TimeEraseActive then return end
@@ -448,5 +539,45 @@ function KingCrimson.EpitaphApply(victimChar, attackerChar)
 		end)
 	end
 end
+
+
+
+--[[
+The counter: Epitaph
+
+This is the counter ability, when player triggers the designated keycode "Start" function makes player go idle for a few seconds.
+
+in this period of time player recieves an attribute that can be detected by Hitbox handler.
+
+
+whenever hitbox handler detects any counter attributes it immediately checks for the server module of the target ability name which is this module for our example.
+
+the counter.Stop is runned by HITBOX HANDLER, not player itself. Which gives a reason why I didn't use self. metetable here 
+
+what counter does is plays :Chop right after teleporting back of the enemy.
+]]--
+
+--[[
+Time erase
+
+
+Time erase is the most complicated system in this script that it has it's own client script.
+
+
+When the skill is triggered, the player becomes invisible from the server.
+
+But the client makes the player visible again immediately which creates a cool looking visual where player can see themselves while others can't see them.
+
+this skill is gets stopped automatically by the client module if it was active for a certain seconds or if player makes any move. 
+
+the :Resume function turns player back to the visible 
+
+the client side of the code includes environmental changes where you can see in the game such as world gets crashed & skybox changes
+]]--
+
+
+--[[
+Thanks for reading my ability script I hope I explained myself well.
+]]--
 
 return KingCrimson
