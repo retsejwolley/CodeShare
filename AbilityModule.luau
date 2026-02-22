@@ -49,7 +49,7 @@ function KingCrimson.new(player)
 	return self
 end
 
--- Helper Methods
+-- Helper Functions
 function KingCrimson:GetStand()
 	if not self.Character then return nil end
 	return self.Character:FindFirstChild(self.Player.Name .. "_Stand")
@@ -119,7 +119,7 @@ function KingCrimson:AttackPosition(forwardAmount, duration)
 	task.wait(0.2)
 end
 
--- Core Abilities
+-- Main Skills
 function KingCrimson:Summon()
 	local existingStand = self:GetStand()
 
