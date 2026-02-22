@@ -49,7 +49,7 @@ function KingCrimson.new(player)
 	return self
 end
 
--- Helper Functions
+-- Helper Methods
 function KingCrimson:GetStand()
 	if not self.Character then return nil end
 	return self.Character:FindFirstChild(self.Player.Name .. "_Stand")
@@ -119,7 +119,7 @@ function KingCrimson:AttackPosition(forwardAmount, duration)
 	task.wait(0.2)
 end
 
--- Main Skills
+-- Core Abilities
 function KingCrimson:Summon()
 	local existingStand = self:GetStand()
 
@@ -406,14 +406,14 @@ function KingCrimson:Epitaph()
 		end
 	end)
 end
-
-function KingCrimson:EpitaphApply(attackerChar)
-	local victimRoot = self.Character:FindFirstChild("HumanoidRootPart")
+--This is a counter ability which reqired by another server script. That is the reason why i didn't use metatable 
+function KingCrimson.EpitaphApply(victimChar, attackerChar)
+	local victimRoot = victimChar:FindFirstChild("HumanoidRootPart")
 	local attackerRoot = attackerChar:FindFirstChild("HumanoidRootPart")
 
 	-- Clear counter state
-	self.Character:SetAttribute("Countering", nil)
-	local shadow = self.Character:FindFirstChild("CounterShadow")
+	victimChar:SetAttribute("Countering", nil)
+	local shadow = victimChar:FindFirstChild("CounterShadow")
 	if shadow then shadow:Destroy() end
 
 	if victimRoot and attackerRoot then
@@ -424,16 +424,19 @@ function KingCrimson:EpitaphApply(attackerChar)
 		victimRoot.CFrame = CFrame.lookAt(behindCFrame.Position, attackerRoot.Position)
 
 		task.delay(0.3, function() 
-			if not self.Character.Parent or not attackerChar.Parent then return end
+			if not victimChar.Parent or not attackerChar.Parent then return end
 
-			local hum = self.Character:FindFirstChildOfClass("Humanoid")
+			local hum = victimChar:FindFirstChildOfClass("Humanoid")
 			if hum then
 				hum.AutoRotate = false
 				hum.WalkSpeed = 0 
 				hum.JumpPower = 0
 			end
 
-			HitboxHandler.Run(self.Player, self.Character, MOVES.Epitaph)
+			local victimPlayer = Players:GetPlayerFromCharacter(victimChar)
+			if victimPlayer then
+				HitboxHandler.Run(victimPlayer, victimChar, MOVES.Epitaph)
+			end
 
 			task.delay(0.5, function() 
 				if hum then
