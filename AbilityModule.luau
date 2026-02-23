@@ -2,11 +2,11 @@ local KingCrimson = {}
 KingCrimson.__index = KingCrimson
 
 --[[
-This is the start of the skill module of the ability: King Crimson
+This is the start of the skill module of the ability: King Crimson.
 
-The ability i scripted comes from an anime Called Jojo's Bizarre Adventure where "stands" take place usually back to the user such as a shadow. 
+The ability I scripted comes from an anime called Jojo's Bizarre Adventure where "stands" take place usually back to the user, such as a shadow. 
 
-I explained most of the functions and topics, I hope I have explained it well.
+I explained most of the functions and topics, I hope I have explained it well. Focus is placed on explaining the logic, performance decisions, and component interactions across the server and client.
 
 Please note that the first ability you spawn in the attached game is THIS ability.
 ]]--
@@ -19,7 +19,7 @@ local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
 --[[
-Here i assigm services that i will use multiple times later in the code
+Here I assign services that I will use multiple times later in the code. I define these dependencies at the top to cache them. Caching services is a good performance decision because calling game:GetService() repeatedly inside functions can slow down the script unnecessarily. It also keeps the dependencies organized.
 ]]--
 
 -- Dependencies
@@ -35,7 +35,7 @@ local AbilityModels = ServerStorage:WaitForChild("AbilityModels")
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local InfoFolder = ReplicatedStorage:WaitForChild("AbilityModules")
 --[[
-Here i call some other system modules and assign remote variables
+Here I call some other system modules and assign remote variables. Centralizing these module requires ensures that KingCrimson can communicate effectively with global systems like Hitboxes and VFX without circular dependencies.
 ]]--
 
 -- Constants
@@ -45,8 +45,9 @@ local MOVES = AbilityInfo.GetMoves()
 local ASSETS = AbilityInfo.GetAssets()
 
 --[[
-This variables are constant for this ability 
+These variables are constant for this ability. By pulling the data from a central AbilityInfo module, I keep the configuration (like damage numbers and asset IDs) separate from the logic. This decision makes the ability much easier to balance and tweak later.
 ]]--
+
 
 -- Constructor
 function KingCrimson.new(player)
@@ -70,7 +71,9 @@ function KingCrimson.new(player)
 end
 
 --[[
-Here is the most crucial part of my code. Metatables allow me to store unique variables separately for each player who uses this ability.
+Here is the most crucial part of my code. Metatables allow me to store unique variables separately for each player who uses this ability. By returning 'self', I create an Object oriented structure. 
+
+The self.State table is a very important technical decision because it holds the active data for that specific player. This instance specific state management prevents global variable conflicts, ensuring that if Player A triggers an attack, it doesn't accidentally overwrite or cancel Player B's attack data.
 ]]--
 
 -- Helper Methods
@@ -99,7 +102,9 @@ function KingCrimson:CreateBulletTracer(startPos, endPos)
 end
 
 --[[
-This is the bullet tracker function that creates a beam between final and starter points for a certain duration.
+This is the bullet tracer function that creates a beam between the final and starter points for a certain duration. 
+
+How it works mathematically: I calculate the Magnitude (distance) between the two vectors to determine how long the part needs to be. Then, I use CFrame.lookAt to point the tracer directly at the endPos, and multiply it by a CFrame offset of half the distance (-distance / 2) to center the beam perfectly between the two points. Finally, I use TweenService for a smooth visual fade and Debris service to garbage-collect the part, preventing memory leaks in the workspace.
 ]]--
 
 
@@ -118,7 +123,7 @@ function KingCrimson:PlayAnim(targetModel, animId, speed)
 end
 
 --[[
-This is the anim player function that loads targer animationId to the target character's animator and plays it with designated playback speed.
+This is the anim player function that loads the target animationId to the target character's animator and plays it with a designated playback speed. It includes fallback logic to create an Animator instance if one does not already exist on the Humanoid, ensuring the animation plays safely without throwing errors.
 ]]--
 
 
@@ -154,16 +159,18 @@ function KingCrimson:AttackPosition(forwardAmount, duration)
 end
 
 --[[
-Attack position makes the ability take place front of the user before attacking. 
+Attack position makes the ability take place in front of the user before attacking. 
 
-This functions tweens ability rig position to the front of the player by "forwardAmount" (studs) throughout the "duration" (number)
+This function tweens the ability rig position to the front of the player by "forwardAmount" (studs) throughout the "duration" (number). 
 
-The reason why I use motor6d instead of classic welds is because motor6d makes the rig animations works correctly instead of just freezing it. Along side this motor6d provides more flexible movement&tweening
+The reason why I use Motor6D instead of classic welds is because Motor6D makes the rig animations work correctly instead of just freezing it. Alongside this, Motor6D provides more flexible movement and tweening by manipulating the C0 property. 
+
+To handle rapid consecutive attacks safely, I added logic using 'self.State.AlreadyAttackPos' and 'task.cancel(self.State.StayForwardTask)'. This decision ensures that if a player attacks again before the previous reset finishes, the tweens won't overlap and glitch the stand's position.
 ]]--
 
 
 --[[
-Helper methods are usually part of multiple abilities,that's why I created simple functions of these codes in order to avoid using them repeatedly 
+Helper methods are usually part of multiple abilities, that's why I created simple, modular functions of these codes in order to avoid repeating myself (DRY principle).
 ]]--
 
 
@@ -229,8 +236,11 @@ function KingCrimson:Summon()
 end
 
 --[[
+In this Summon ability, whenever a player triggers the designated key it gets fired, checks for the ability model, clones it, and tweens it to the correct place.
 
- In this Summon ability whenever player triggers the designated key it gets fired, checks for the ability model, clones and tweens it to the correct place.
+The logic handles both spawning and despawning to prevent duplicate instances. If 'existingStand' is found, it triggers a despawn sequence: tweening the transparency of all BaseParts and smoothly moving the Motor6D before safely calling :Destroy() to free memory. 
+
+When spawning, a crucial physics decision was made in the for-loop: setting CanCollide to false and Massless to true for all BaseParts. This guarantees the Stand model will not disrupt the player's core movement physics or cause unnatural weight drag.
 ]]--
 
 
@@ -275,13 +285,11 @@ end
 
 
 --[[
-Barrage is an iconic skill for this type of abilities, basically spawns multiple hitboxes along side a bezier curve module that creates extra arms in order to feel like character punches really fast.
+Barrage is an iconic skill for this type of ability. It basically spawns multiple hitboxes alongside a bezier curve module that creates extra arms in order to feel like the character punches really fast.
 
-how this function works is since this ability is holdable it's divided into two scripts.
+How this function works is, since this ability is holdable, it's divided into two functions. The start script sets up the hitboxes, arms, animations, and sound. The stop function handles the cleanup process.
 
-starter script creates the hitbox, arms, animation and sound while stop function disables all relevant self. variables
-
-This action makes the client side of the module check if attack still ongoing or not.
+The logic relies heavily on state management ('self.State.IsBarraging') to ensure the player cannot trigger the start function multiple times, which would create overlapping sounds or broken hitboxes. In BarrageStop, destroying the sound object and calling BezierPunch.Stop ensures no memory leaks or visual bugs remain after the button is released.
 ]]--
 
 
@@ -301,7 +309,7 @@ function KingCrimson:Heavy()
 end
 
 --[[
-This is the heavy punch ability plays an animation and sound right before punching through the enemy
+This is the heavy punch ability. It plays an animation and sound right before punching through the enemy. I use task.delay(0.35) to sync the creation of the hitbox with the exact keyframe of the animation where the fist swings forward, making the combat feel highly responsive.
 ]]--
 
 
@@ -317,15 +325,15 @@ function KingCrimson:Punch()
 end
 
 --[[
-This is the similar version of heavy punch ability with a lower damage on its "data"
+This is a similar version of the heavy punch ability, but with lower damage defined in its "data".
 
-how data works is there is basically an information table located in client version of this module that includes various variables which will be checked by the hitbox handler server module
+How data works is there is basically an information table located in the module that includes various variables. This data table is passed into the HitboxHandler server module, meaning the hitboxes dynamically scale based on the provided configuration without needing separate hitbox logic for every single attack.
 ]]--
 
 
 function KingCrimson:Chop()
 	local stand = self:GetStand()
-	if not stand then return end
+	if not stand then return end 
 
 	local data = table.clone(MOVES.Chop)
 	local speed = 1
@@ -348,14 +356,16 @@ function KingCrimson:Chop()
 end
 
 --[[
-A similar version of previous two skills but connects with the DamagePerSecond system in it's data in order to create bleeding effect on enemy.
+A similar version of the previous two skills, but it connects with the DamagePerSecond system in its data in order to create a bleeding effect on the enemy.
+
+I included a logical branch here: if 'self.State.TimeEraseActive' is true, the chop is buffed. Because tables in Lua pass by reference, I use table.clone(MOVES.Chop) so I can safely modify 'data.DPSTotal' and 'data.Ragdoll' without permanently altering the base move stats. The task.delay is also dynamically divided by the 'speed' multiplier so the hitbox always matches the faster animation timing.
 ]]--
 
 
 -- Time Erase And Counter
 
 --[[
-Both of the skills below explained end of the code
+Both of the skills below are explained at the end of the code.
 ]]--
 
 
@@ -497,7 +507,9 @@ function KingCrimson:Epitaph()
 		end
 	end)
 end
---This is a counter ability which reqired by another server script. That is the reason why i didn't use metatable 
+
+
+-- This is a counter ability which is required by another server script. That is the reason why I didn't use the self metatable here.
 function KingCrimson.EpitaphApply(victimChar, attackerChar)
 	local victimRoot = victimChar:FindFirstChild("HumanoidRootPart")
 	local attackerRoot = attackerChar:FindFirstChild("HumanoidRootPart")
@@ -545,39 +557,38 @@ end
 --[[
 The counter: Epitaph
 
-This is the counter ability, when player triggers the designated keycode "Start" function makes player go idle for a few seconds.
+This is the counter ability. When the player triggers the designated keycode, the "Epitaph" function makes the player go idle for a few seconds. I use a Tween on a Highlight instance to create a dark shadow visual effect.
 
-in this period of time player recieves an attribute that can be detected by Hitbox handler.
+In this period of time, the player receives an attribute that can be detected by the HitboxHandler.
 
+Whenever the HitboxHandler detects any counter attributes, it immediately checks for the server module of the target ability name, which is this module for our example.
 
-whenever hitbox handler detects any counter attributes it immediately checks for the server module of the target ability name which is this module for our example.
+The counter execution is run by the HITBOX HANDLER, not the player itself. Because the HitboxHandler is a separate server script interacting with two different characters (attacker and victim), it needs to call this as a global class function (KingCrimson.EpitaphApply) rather than an instance method. This is the technical reason why I didn't use the 'self.' metatable here.
 
-the counter.Stop is runned by HITBOX HANDLER, not player itself. Which gives a reason why I didn't use self. metetable here 
-
-what counter does is plays :Chop right after teleporting back of the enemy.
+What the counter does is calculate the positional math to teleport the victim behind the attacker. I do this by multiplying the attacker's Root CFrame by CFrame.new(0, 0, 5), and then using CFrame.lookAt to ensure the victim immediately faces the attacker. It then temporarily freezes the victim's Humanoid and auto-rotates before executing a chop via HitboxHandler.Run.
 ]]--
 
 --[[
 Time erase
 
+Time Erase is the most complicated system in this script, and it actually splits logic with its own client script.
 
-Time erase is the most complicated system in this script that it has it's own client script.
+When the skill is triggered, I wait for a specific animation KeyframeReached event ('Erase') before triggering the effect. The player becomes invisible on the server. 
 
+To ensure the player restores to their correct previous appearance (rather than just setting everything to fully opaque), I implemented a loop that maps the current transparency of every BasePart, Decal, and Texture into 'self.State.OldTransparencyTable'. This data mapping decision allows me to safely save and restore exact visual states.
 
-When the skill is triggered, the player becomes invisible from the server.
+The client makes the player visible again locally immediately. This creates a cool visual interaction where the player can see themselves, while the rest of the server cannot.
 
-But the client makes the player visible again immediately which creates a cool looking visual where player can see themselves while others can't see them.
+This skill is stopped automatically by the client module if it was active for a certain amount of seconds or if the player makes an attacking move. 
 
-this skill is gets stopped automatically by the client module if it was active for a certain seconds or if player makes any move. 
+The :ReverseErase function clears out the old transparency map (setting it to nil) to ensure garbage collection handles it and no memory leaks occur, before reverting the player's WalkSpeed.
 
-the :Resume function turns player back to the visible 
-
-the client side of the code includes environmental changes where you can see in the game such as world gets crashed & skybox changes
+The client side of the code handles the environmental changes you see in-game, such as the world crashing and skybox changes, taking the visual heavy-lifting off the server's shoulders.
 ]]--
 
 
 --[[
-Thanks for reading my ability script I hope I explained myself well.
+Thanks for reading my ability script. I hope the explanations clearly illustrate the logic and interaction between systems.
 ]]--
 
 return KingCrimson
