@@ -1,16 +1,13 @@
 --!strict
 
--- This module provides a framerate-independent, mathematically precise projectile pathing system.
--- It uses the polynomial expansion of cubic Bezier curves to calculate exact world space coordinates.
--- Instead of relying on positional differences for rotation, it calculates the true mathematical derivative 
--- of the curve to find the exact tangent vector at any given frame. The architecture is strictly typed 
--- to prevent runtime type mismatches and uses custom garbage collection to handle memory safely.
+-- Bezier based projectile mover
+-- Uses cubic bezier math instead of lerp chains so motion stays stable
+-- even if framerate changes. Rotation follows the curve tangent.
 
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
--- Exporting the type configuration allows other scripts to require this module and receive full autocomplete 
--- and type checking for the constructor arguments. This enforces data integrity before the script even runs.
+-- exported config type so other scripts get autocomplete when requiring this module
 export type BezierConfig = {
 	TargetPart: BasePart,
 	FaceAttachment: Attachment,
@@ -22,8 +19,8 @@ export type BezierConfig = {
 	VisualizePath: boolean?
 }
 
--- The primary object type defines every property and method attached to the instantiated table.
--- Defining internal methods (like _GetPositionAt) here ensures the strict typechecker tracks them properly.
+-- main object type
+-- listing private methods here helps Luau strict mode understand the structure
 export type BezierMover = {
 	Config: BezierConfig,
 	IsPlaying: boolean,
@@ -53,8 +50,8 @@ export type BezierMover = {
 local BezierMover = {}
 BezierMover.__index = BezierMover
 
--- Storing curve styles in a dictionary scales better than hardcoding strings throughout the logic.
--- If a new style is added, it only needs to be registered here and in the control point generator.
+-- list of movement styles
+-- easier to extend instead of scattering strings in the code
 local CURVE_STYLES = {
 	Standard = "Standard",
 	ZigZag = "ZigZag",
@@ -74,8 +71,7 @@ function BezierMover.new(config: BezierConfig): BezierMover
 	self.Config = config
 	self.Config.Style = config.Style or CURVE_STYLES.Standard
 
-	-- Using math.max prevents the user from accidentally passing a duration of 0.
-	-- A duration of 0 causes a division by zero error when calculating the alpha during the RunService loop.
+	-- prevent duration = 0 (would break alpha calculation)
 	self.Config.Duration = math.max(config.Duration, 0.01)
 	self.Config.EasingStyle = config.EasingStyle or Enum.EasingStyle.Linear
 	self.Config.EasingDirection = config.EasingDirection or Enum.EasingDirection.InOut
@@ -84,8 +80,7 @@ function BezierMover.new(config: BezierConfig): BezierMover
 	self.IsPaused = false
 	self._elapsedTime = 0
 
-	-- Caching the starting position upon instantiation prevents the curve from breaking 
-	-- if the TargetPart is accidentally bumped or moved by physics before Play() is called.
+	-- cache start position so physics doesn't shift the curve before Play()
 	self._startPos = config.TargetPart.Position
 
 	self._completedEvent = Instance.new("BindableEvent")
@@ -104,6 +99,16 @@ function BezierMover.new(config: BezierConfig): BezierMover
 end
 
 function BezierMover._GenerateControlPoints(self: BezierMover)
+	--[[
+	Bezier curves use four points:
+
+	P0 : starting position
+	P1 : first control point
+	P2 : second control point
+	P3 : final destination
+
+	]]
+	
 	local p0 = self._startPos
 	local p3 = self.Config.TargetPosition
 	local distance = (p3 - p0).Magnitude
@@ -112,8 +117,7 @@ function BezierMover._GenerateControlPoints(self: BezierMover)
 	local upVector = Vector3.new(0, 1, 0)
 	local forwardVector = (p3 - p0).Unit
 
-	-- The cross product calculates a vector perfectly perpendicular to both the forward and up vectors.
-	-- This generates a localized right-side vector, ensuring horizontal offsets apply correctly 
+	-- cross product gives a right vector relative to forward direction
 	-- regardless of where the target is located in the world space.
 	local rightVector = forwardVector:Cross(upVector).Unit
 	if rightVector.Magnitude == 0 then
@@ -138,8 +142,7 @@ function BezierMover._GenerateControlPoints(self: BezierMover)
 		self._p2 = p3 + (forwardVector * -(distance * 0.2)) + Vector3.new(0, distance * 0.6, 0)
 
 	elseif style == CURVE_STYLES.Chaotic then
-		-- A localized Random object is created instead of using math.random.
-		-- math.random shares a global seed, which causes repeating patterns if called by multiple scripts simultaneously.
+		-- use local Random instead of math.random to avoid shared seed patterns
 		local rng = Random.new()
 		self._p1 = p0 + Vector3.new(rng:NextNumber(-distance, distance), rng:NextNumber(0, distance), rng:NextNumber(-distance, distance))
 		self._p2 = p3 + Vector3.new(rng:NextNumber(-distance, distance), rng:NextNumber(0, distance), rng:NextNumber(-distance, distance))
@@ -168,18 +171,31 @@ function BezierMover._GetPositionAt(self: BezierMover, t: number): Vector3
 	local tt = t * t
 	local ttt = tt * t
 
-	-- This implements the mathematical formula for a cubic Bezier.
-	-- Evaluating the polynomial directly at progress 't' prevents the need for recursive Lerping, 
-	-- which heavily reduces processor overhead.
+	-- direct cubic bezier formula (faster than chaining lerps)
 	local term1 = uuu * self._startPos
 	local term2 = 3 * uu * t * self._p1
 	local term3 = 3 * u * tt * self._p2
 	local term4 = ttt * self.Config.TargetPosition
+	
+	--[[
+	Evaluate the cubic Bezier polynomial.
+
+	B(t) = (1 - t)^3 P0
+     + 3(1 - t)^2 t P1
+     + 3(1 - t) t^2 P2
+     + t^3 P3
+
+	Calculating the polynomial directly avoids repeatedly calling Vector3:Lerp,
+	which would allocate additional vectors every frame.
+	]]
 
 	return term1 + term2 + term3 + term4
 end
 
 function BezierMover._GetTangentAt(self: BezierMover, t: number): Vector3
+	
+	-- derivative gives the tangent direction of the curve
+	
 	local u = 1 - t
 	local tt = t * t
 	local uu = u * u
@@ -203,9 +219,13 @@ function BezierMover._GetTangentAt(self: BezierMover, t: number): Vector3
 	else
 		return Vector3.new(0, 0, -1) 
 	end
+	
+
 end
 
 function BezierMover._DrawDebugPath(self: BezierMover)
+	
+	-- debug markers along the curve so the path can be seen in workspace
 	local segments = 30
 	local folder = Instance.new("Folder")
 	folder.Name = "BezierDebug_" .. self.Config.TargetPart.Name
@@ -216,9 +236,6 @@ function BezierMover._DrawDebugPath(self: BezierMover)
 		local pos = self:_GetPositionAt(t)
 		local tangent = self:_GetTangentAt(t)
 
-		-- To accurately align debug markers to the curve, a full rotational matrix is required.
-		-- By crossing the tangent with the global up vector, the true localized right vector is extracted.
-		-- Crossing the right vector back against the tangent generates the true localized up vector.
 		local up = Vector3.new(0, 1, 0)
 		local right = tangent:Cross(up).Unit
 		local realUp = right:Cross(tangent).Unit
@@ -230,13 +247,17 @@ function BezierMover._DrawDebugPath(self: BezierMover)
 		marker.Material = Enum.Material.Neon
 		marker.Color = Color3.new(1, 0, 0)
 
-		-- Constructing a CFrame via fromMatrix applies the localized vectors directly, 
-		-- pointing the debug parts identically to how the moving object will travel.
 		marker.CFrame = CFrame.fromMatrix(pos, right, realUp, -tangent)
 		marker.Parent = folder
+
+		-- Creates a localized fade effect. 
+		-- The delay matches the lifetime of the projectile, meaning the path 
+		-- begins fading exactly as the projectile finishes its journey.
+		local fadeInfo = TweenInfo.new(1.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, false, self.Config.Duration * t)
+		game:GetService("TweenService"):Create(marker, fadeInfo, {Transparency = 1}):Play()
 	end
 
-	game:GetService("Debris"):AddItem(folder, self.Config.Duration + 2)
+	game:GetService("Debris"):AddItem(folder, self.Config.Duration + 3)
 end
 
 function BezierMover.Play(self: BezierMover)
@@ -244,9 +265,8 @@ function BezierMover.Play(self: BezierMover)
 
 	self.IsPlaying = true
 	self.IsPaused = false
-
-	-- Heartbeat fires right before the physics step on every frame.
-	-- Tying the calculation to Heartbeat prevents position stuttering caused by server latency.
+	
+	-- run movement update every frame
 	self._connection = RunService.Heartbeat:Connect(function(deltaTime)
 		if self.IsPaused then return end
 
@@ -269,9 +289,14 @@ function BezierMover.Play(self: BezierMover)
 		local attachmentOffset = self.Config.FaceAttachment.CFrame.Rotation:Inverse()
 		self.Config.TargetPart.CFrame = baseCFrame * attachmentOffset
 
-		-- The waypoint event fires precisely halfway through the animation progression.
-		-- Subtracting the frame's progression step prevents the event from firing repeatedly if the alpha lingers near 0.5.
-		if rawAlpha >= 0.5 and rawAlpha - (deltaTime / self.Config.Duration) < 0.5 then
+	
+		
+		--The waypoint event 
+
+		--The additional subtraction check prevents the signal from firing
+		--multiple times if the frame step happens to land near the same value on consecutive updates.
+		
+		if rawAlpha >= 0 and rawAlpha - (deltaTime / self.Config.Duration) < 0.5 then
 			self._waypointEvent:Fire(0.5)
 		end
 
@@ -308,13 +333,8 @@ function BezierMover.Destroy(self: BezierMover)
 	self._completedEvent:Destroy()
 	self._waypointEvent:Destroy()
 
-	-- table.clear purges all references inside the metatable object.
-	-- This completely drops the data from memory, allowing the Luau garbage collector to reclaim it.
+	-- cleanup so the object can be garbage collected
 	table.clear(self)
 end
 
 return BezierMover
-
--- Integrating Custom Events and rigorous GC (Garbage Collection) logic solidifies this script's durability in production environments.
--- Firing custom BindableEvents connects isolated modules cleanly without tangling the codebase, 
--- and clearing the internal tables during destruction strictly addresses the memory constraints required for continuous, heavy ability usage.
