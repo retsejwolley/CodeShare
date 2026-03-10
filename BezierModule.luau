@@ -289,10 +289,7 @@ function BezierMover.Play(self: BezierMover)
 		local attachmentOffset = self.Config.FaceAttachment.CFrame.Rotation:Inverse()
 		self.Config.TargetPart.CFrame = baseCFrame * attachmentOffset
 
-	
-		
 		--The waypoint event 
-
 		--The additional subtraction check prevents the signal from firing
 		--multiple times if the frame step happens to land near the same value on consecutive updates.
 		
