@@ -36,9 +36,13 @@ export type BezierMover = {
 	WaypointReached: RBXScriptSignal,
 
 	_GenerateControlPoints: (BezierMover) -> (),
-	_GetPositionAt: (BezierMover, number) -> Vector3,
-	_GetTangentAt: (BezierMover, number) -> Vector3,
+	_GetPositionAt: (BezierMover, number) -> Vector3, -- these temporary values store powers of t and (1 - t)
+	_GetTangentAt: (BezierMover, number) -> Vector3, 
+    --CFrame.lookAt only cares about direction, not magnitude
+    -- so converting it to a unit vector avoids accidental scaling
+
 	_DrawDebugPath: (BezierMover) -> (),
+    -- samples used to visualize the curve
 
 	Play: (BezierMover) -> (),
 	Pause: (BezierMover) -> (),
@@ -69,19 +73,30 @@ function BezierMover.new(config: BezierConfig): BezierMover
 	local self = setmetatable({}, BezierMover) :: any
 
 	self.Config = config
-	self.Config.Style = config.Style or CURVE_STYLES.Standard
 
-	-- prevent duration = 0 (would break alpha calculation)
-	self.Config.Duration = math.max(config.Duration, 0.01)
-	self.Config.EasingStyle = config.EasingStyle or Enum.EasingStyle.Linear
-	self.Config.EasingDirection = config.EasingDirection or Enum.EasingDirection.InOut
+	-- if the user didn't specify a style we fall back to Standard
+    -- doing this here avoids having to check for nil inside the movement logic later
+
+    self.Config.Style = config.Style or CURVE_STYLES.Standard
+
+	-- duration is used as a divisor when calculating progress
+    -- if someone passes 0 the movement math would explode (division by zero)
+    -- clamping it here guarantees the runtime loop stays safe
+    self.Config.Duration = math.max(config.Duration, 0.01)
+
+	-- easing parameters are optional so the module can still run
+    -- even if the caller only provides the basic movement settings
+    self.Config.EasingStyle = config.EasingStyle or Enum.EasingStyle.Linear
+    self.Config.EasingDirection = config.EasingDirection or Enum.EasingDirection.InOut
 
 	self.IsPlaying = false
 	self.IsPaused = false
 	self._elapsedTime = 0
 
-	-- cache start position so physics doesn't shift the curve before Play()
-	self._startPos = config.TargetPart.Position
+	-- cache the starting position immediately
+    -- if the part gets triggered by physics or another script before Play()
+    -- the curve would otherwise start from the wrong position
+    self._startPos = config.TargetPart.Position
 
 	self._completedEvent = Instance.new("BindableEvent")
 	self._waypointEvent = Instance.new("BindableEvent")
@@ -111,18 +126,24 @@ function BezierMover._GenerateControlPoints(self: BezierMover)
 	
 	local p0 = self._startPos
 	local p3 = self.Config.TargetPosition
-	local distance = (p3 - p0).Magnitude
+	-- distance is reused as a scaling factor for most curve styles
+    -- this keeps the shape looking proportional whether the target
+    -- is 5 studs away or 200 studs away
+    local distance = (p3 - p0).Magnitude
 
-	local midPoint = p0:Lerp(p3, 0.5)
+	-- midpoint is an anchor for many curve styles
+    -- it lets us bend the curve without biasing it too heavily
+    -- toward either the start or the target
+    local midPoint = p0:Lerp(p3, 0.5)
 	local upVector = Vector3.new(0, 1, 0)
 	local forwardVector = (p3 - p0).Unit
 
-	-- cross product gives a right vector relative to forward direction
-	-- regardless of where the target is located in the world space.
-	local rightVector = forwardVector:Cross(upVector).Unit
-	if rightVector.Magnitude == 0 then
-		rightVector = Vector3.new(1, 0, 0)
-	end
+	-- when forwardVector is perfectly vertical the cross product becomes zero
+    -- that would break normalization and produce NaN values
+    -- so we fall back to a safe axis to keep the math stable
+    if rightVector.Magnitude == 0 then
+	   rightVector = Vector3.new(1, 0, 0)
+    end
 
 	local style = self.Config.Style
 
@@ -226,7 +247,8 @@ end
 function BezierMover._DrawDebugPath(self: BezierMover)
 	
 	-- debug markers along the curve so the path can be seen in workspace
-	local segments = 30
+    -- more segments = smoother debug line but also more parts spawned
+	local segments = 30 
 	local folder = Instance.new("Folder")
 	folder.Name = "BezierDebug_" .. self.Config.TargetPart.Name
 	folder.Parent = workspace
@@ -266,13 +288,18 @@ function BezierMover.Play(self: BezierMover)
 	self.IsPlaying = true
 	self.IsPaused = false
 	
-	-- run movement update every frame
+	-- Heartbeat runs once every frame right before physics simulation
+    -- tying the motion to this signal keeps the movement consistent
+    -- even if the server frame rate fluctuates
 	self._connection = RunService.Heartbeat:Connect(function(deltaTime)
 		if self.IsPaused then return end
 
 		-- Accumulating deltaTime calculates the exact time passed regardless of frame drops.
 		self._elapsedTime += deltaTime
-		local rawAlpha = math.clamp(self._elapsedTime / self.Config.Duration, 0, 1)
+
+		-- convert elapsed runtime into a normalized progress value (0 → 1)
+        -- this becomes the parameter used to evaluate the curve
+        local rawAlpha = math.clamp(self._elapsedTime / self.Config.Duration, 0, 1)
 
 		-- TweenService:GetValue translates the linear time progress (rawAlpha) into an eased progression.
 		-- This modifies the velocity along the path without altering the coordinate geometry of the path itself.
@@ -283,9 +310,9 @@ function BezierMover.Play(self: BezierMover)
 
 		local baseCFrame = CFrame.lookAt(currentPos, currentPos + tangentVector)
 
-		-- Inverting the Attachment's rotational matrix returns its opposite offset values.
-		-- Multiplying the base CFrame by this inverse counters the default front-facing orientation,
-		-- forcing the specified Attachment face to look forward along the curve.
+		-- inverting the attachment's rotational matrix returns its opposite offset values.
+		-- multiplying the base CFrame by this inverse counters the default front facing orientation,
+		-- forcing the specified attachment face to look forward along the curve.
 		local attachmentOffset = self.Config.FaceAttachment.CFrame.Rotation:Inverse()
 		self.Config.TargetPart.CFrame = baseCFrame * attachmentOffset
 
