@@ -36,10 +36,8 @@ export type BezierMover = {
 	WaypointReached: RBXScriptSignal,
 
 	_GenerateControlPoints: (BezierMover) -> (),
-	_GetPositionAt: (BezierMover, number) -> Vector3, -- these temporary values store powers of t and (1 - t)
+	_GetPositionAt: (BezierMover, number) -> Vector3,
 	_GetTangentAt: (BezierMover, number) -> Vector3, 
-    --CFrame.lookAt only cares about direction, not magnitude
-    -- so converting it to a unit vector avoids accidental scaling
 
 	_DrawDebugPath: (BezierMover) -> (),
     -- samples used to visualize the curve
